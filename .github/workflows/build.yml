@@ -1,0 +1,119 @@
+name: Build app and check firmware
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  firmware:
+    name: Compile firmware (esp32 core 3.3.8)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Protocol header identical in both sketches
+        run: cmp firmware/SmartPost_Node/SmartPostProtocol.h firmware/SmartPost_Hub/SmartPostProtocol.h
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install esp32 core 3.3.8
+        env:
+          URL: https://espressif.github.io/arduino-esp32/package_esp32_index.json
+        run: |
+          arduino-cli core update-index --additional-urls "$URL"
+          arduino-cli core install esp32:esp32@3.3.8 --additional-urls "$URL"
+      - name: Compile node (XIAO_ESP32S3, OPI PSRAM)
+        run: arduino-cli compile --fqbn esp32:esp32:XIAO_ESP32S3:PSRAM=opi --warnings default firmware/SmartPost_Node 2>&1 | tee node.log
+      - name: Compile hub (ESP32 Wrover Module)
+        run: arduino-cli compile --fqbn esp32:esp32:esp32wrover --warnings default firmware/SmartPost_Hub 2>&1 | tee hub.log
+      - name: Compile hub with tamper, fast baud, no debug
+        run: >
+          arduino-cli compile --fqbn esp32:esp32:esp32wrover
+          --build-property "compiler.cpp.extra_flags=-DUSE_TAMPER=1 -DUSE_FAST_BAUD=1 -DDEBUG_SERIAL=0"
+          firmware/SmartPost_Hub 2>&1 | tee hub-variant.log
+      - name: Compile node with no debug
+        run: >
+          arduino-cli compile --fqbn esp32:esp32:XIAO_ESP32S3:PSRAM=opi
+          --build-property "compiler.cpp.extra_flags=-DDEBUG_SERIAL=0"
+          firmware/SmartPost_Node 2>&1 | tee node-variant.log
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-logs
+          path: "*.log"
+          if-no-files-found: ignore
+
+  android:
+    name: Build the Android app
+    needs: firmware          # no APK unless both firmware programs compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test course content and bundle it
+        run: |
+          node course/test_content.js 2>&1 | tee course.log
+          python3 course/bundle.py 2>&1 | tee -a course.log
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+      - name: Decode signing key
+        run: base64 -d android/app/signing/keystore.b64 > android/app/signing/smartpost-academy.keystore
+      - name: Build release APK
+        run: gradle -p android assembleRelease --no-daemon 2>&1 | tee android.log
+      - name: Name the APK
+        run: cp android/app/build/outputs/apk/release/app-release.apk SmartPostAcademy.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SmartPostAcademy-apk
+          path: SmartPostAcademy.apk
+      - name: Publish a release with the APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Smart Post Academy build ${{ github.run_number }}
+          body: Install SmartPostAcademy.apk on your phone. Built from ${{ github.sha }}.
+          files: SmartPostAcademy.apk
+          make_latest: true
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-logs
+          path: "*.log"
+          if-no-files-found: ignore
+
+  report:
+    name: Write the build report to the ci-logs branch
+    needs: [firmware, android]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: logs
+          pattern: "*-logs"
+          merge-multiple: true
+      - name: Push report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p out && cd out
+          git init -q -b ci-logs
+          {
+            echo "# Build ${{ github.run_number }} for ${{ github.sha }}"
+            echo
+            echo "- firmware: ${{ needs.firmware.result }}"
+            echo "- android: ${{ needs.android.result }}"
+          } > SUMMARY.md
+          for f in ../logs/*.log; do [ -f "$f" ] && tail -c 60000 "$f" > "$(basename "$f")"; done
+          git add -A
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "Build ${{ github.run_number }} report"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" ci-logs

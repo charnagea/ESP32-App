@@ -1,0 +1,9 @@
+android/.gradle/
+android/build/
+android/app/build/
+android/app/signing/*.keystore
+android/local.properties
+course/dist/
+*.log
+.DS_Store
+android/app/src/main/assets/index.html
