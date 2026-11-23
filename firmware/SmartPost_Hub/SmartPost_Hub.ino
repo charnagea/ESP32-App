@@ -154,8 +154,8 @@ void sendTo(const uint8_t *mac, const void *msg, size_t len) {
   esp_now_send(mac, (const uint8_t *)msg, len);
 }
 
-bool bitGet(const uint8_t *bits, uint16_t i) { return bits[i >> 3] & (1 << (i & 7)); }
-void bitSet(uint8_t *bits, uint16_t i)       { bits[i >> 3] |= (1 << (i & 7)); }
+bool chunkArrived(const uint8_t *bits, uint16_t i) { return bits[i >> 3] & (1 << (i & 7)); }
+void markChunk(uint8_t *bits, uint16_t i)       { bits[i >> 3] |= (1 << (i & 7)); }
 
 // ---------- Governor: decides each event's budget ----------
 void rollWindow() {
@@ -265,13 +265,13 @@ void handleMessage(const RxItem &it, uint16_t mv, bool quiet, unsigned long &las
     if (c->photoIdx == session.photoIdx && c->chunkIdx < session.chunkCount &&
         offset + c->len <= session.totalLen) {
       memcpy(photoBuf + offset, c->data, c->len);
-      bitSet(session.seen, c->chunkIdx);   // duplicates are harmless
+      markChunk(session.seen, c->chunkIdx);   // duplicates are harmless
     }
   }
   else if (type == MSG_PHOTO_END && it.len == sizeof(PhotoEndMsg)) {
     const PhotoEndMsg *e = (const PhotoEndMsg *)it.data;
     bool ok = session.photoOpen && e->photoIdx == session.photoIdx;
-    for (uint16_t i = 0; ok && i < session.chunkCount; i++) ok = bitGet(session.seen, i);
+    for (uint16_t i = 0; ok && i < session.chunkCount; i++) ok = chunkArrived(session.seen, i);
     if (ok) ok = crc32Update(0, photoBuf, session.totalLen) == session.crc;
     if (ok) ok = savePhoto(session.nodeId, session.eventId, e->photoIdx, photoBuf, session.totalLen);
     if (ok) session.photosStored++;

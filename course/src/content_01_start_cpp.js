@@ -154,8 +154,10 @@ constexpr uint8_t NODE_ID = 1;        // typed, known at compile time` },
         ['<code>~</code>', 'NOT — invert all bits', '<code>~crc</code>'],
         ['<code>&lt;&lt; &gt;&gt;</code>', 'shift left / right', '<code>i &gt;&gt; 3</code> = i ÷ 8']] },
       { t: 'p', html: 'The hub tracks which photo chunks arrived with one <b>bit per chunk</b>. Chunk i lives in byte <code>i &gt;&gt; 3</code>, bit <code>i &amp; 7</code>:' },
-      { t: 'fill', q: 'Complete bitSet and bitGet.', code: R`void bitSet(uint8_t *bits, uint16_t i) { bits[i >> 3] {{|=}} (1 << (i & 7)); }
-bool bitGet(const uint8_t *bits, uint16_t i) { return bits[i >> 3] {{&}} (1 << (i & 7)); }`, why: '|= turns the bit on without touching the others; & tests it.' },
+      { t: 'fill', q: 'Complete markChunk and chunkArrived.', code: R`void markChunk(uint8_t *bits, uint16_t i) { bits[i >> 3] {{|=}} (1 << (i & 7)); }
+bool chunkArrived(const uint8_t *bits, uint16_t i) { return bits[i >> 3] {{&}} (1 << (i & 7)); }`, why: '|= turns the bit on without touching the others; & tests it.' },
+      { t: 'note', kind: 'warn', title: 'Name clash — found by the real compiler', html: 'The first version of this firmware called these functions <code>bitSet</code> and <code>bitGet</code>. It failed to compile on core 3.3.8, because <code>Arduino.h</code> already defines <code>bitSet(value, bit)</code> as a <b>macro</b>, and the preprocessor rewrote the function name before the compiler saw it. Avoid Arduino\'s own names: <code>bitSet</code>, <code>bitRead</code>, <code>bitWrite</code>, <code>bitClear</code>, <code>min</code>, <code>max</code>, <code>abs</code>, <code>constrain</code>.' },
+      { t: 'mcq', q: 'Why did <code>void bitSet(uint8_t *bits, uint16_t i) { … }</code> fail to compile in an Arduino sketch?', opts: ['bitSet is a C++ keyword', 'Arduino.h defines bitSet as a macro, so the preprocessor replaced the name', 'uint16_t is not allowed as a parameter'], a: 1, why: 'Macros are replaced as text before compiling. That is why the hub uses markChunk and chunkArrived.' },
       { t: 'num', q: 'Chunk number 13 is stored in which byte of the bitmap (counting from 0)?', a: 1, tol: 0, why: '13 >> 3 = 1 (13 ÷ 8 = 1, remainder 5 → bit 5).' }
     ]}
   ]

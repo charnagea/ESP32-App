@@ -620,8 +620,8 @@ BudgetMsg decideBudget(uint8_t nodeId, uint16_t mv, bool quietPeriod) {
           { re: R`memset\s*\(\s*session\.seen\s*,\s*0`, msg: 'clears the bitmap at PHOTO_START' },
           { re: R`chunkIdx\s*\*\s*CHUNK_DATA_MAX`, msg: 'offset = chunkIdx × CHUNK_DATA_MAX' },
           { re: R`offset\s*\+\s*\w+\s*->\s*len\s*<=\s*session\.totalLen`, msg: 'checks the chunk fits inside the photo' },
-          { re: R`bitSet\s*\(\s*session\.seen`, msg: 'marks the chunk in the bitmap' },
-          { re: R`bitGet\s*\(\s*session\.seen`, msg: 'checks every chunk arrived' },
+          { re: R`markChunk\s*\(\s*session\.seen`, msg: 'marks the chunk in the bitmap' },
+          { re: R`chunkArrived\s*\(\s*session\.seen`, msg: 'checks every chunk arrived' },
           { re: R`crc32Update\s*\(\s*0\s*,\s*photoBuf\s*,\s*session\.totalLen\s*\)\s*==\s*session\.crc`, msg: 'compares the CRC' },
           { re: R`savePhoto\s*\(`, msg: 'saves the photo' },
           { re: R`AckMsg\s+\w+\s*=\s*\{\s*MSG_ACK`, msg: 'builds an AckMsg' },
@@ -642,13 +642,13 @@ BudgetMsg decideBudget(uint8_t nodeId, uint16_t mv, bool quietPeriod) {
     if (c->photoIdx == session.photoIdx && c->chunkIdx < session.chunkCount &&
         offset + c->len <= session.totalLen) {
       memcpy(photoBuf + offset, c->data, c->len);
-      bitSet(session.seen, c->chunkIdx);
+      markChunk(session.seen, c->chunkIdx);
     }
   }
   else if (type == MSG_PHOTO_END && it.len == sizeof(PhotoEndMsg)) {
     const PhotoEndMsg *e = (const PhotoEndMsg *)it.data;
     bool ok = session.photoOpen && e->photoIdx == session.photoIdx;
-    for (uint16_t i = 0; ok && i < session.chunkCount; i++) ok = bitGet(session.seen, i);
+    for (uint16_t i = 0; ok && i < session.chunkCount; i++) ok = chunkArrived(session.seen, i);
     if (ok) ok = crc32Update(0, photoBuf, session.totalLen) == session.crc;
     if (ok) ok = savePhoto(session.nodeId, session.eventId, e->photoIdx, photoBuf, session.totalLen);
     if (ok) session.photosStored++;
