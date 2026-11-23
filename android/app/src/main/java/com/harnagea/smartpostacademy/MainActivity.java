@@ -2,11 +2,14 @@ package com.harnagea.smartpostacademy;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Insets;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.WindowInsets;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -35,6 +38,13 @@ public class MainActivity extends Activity {
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);          // localStorage keeps your progress
         s.setTextZoom(100);
+
+        // Progress is saved in the app's own storage (SharedPreferences) through this bridge,
+        // so it survives restarts and updates. Only the bundled course page can call it:
+        // every web link opens in your browser instead.
+        web.addJavascriptInterface(new ProgressStore(getSharedPreferences("course", MODE_PRIVATE)), "AndroidStore");
+        // Needed for confirm() and prompt() dialogs (Reference, Reset, Restore buttons).
+        web.setWebChromeClient(new WebChromeClient());
 
         web.setWebViewClient(new WebViewClient() {
             @Override
@@ -67,6 +77,18 @@ public class MainActivity extends Activity {
 
         if (state != null) web.restoreState(state);
         else web.loadUrl("file:///android_asset/index.html");
+    }
+
+    /** Called from JavaScript as window.AndroidStore.load() / save(json). */
+    static final class ProgressStore {
+        private final SharedPreferences prefs;
+        ProgressStore(SharedPreferences prefs) { this.prefs = prefs; }
+
+        @JavascriptInterface
+        public String load() { return prefs.getString("progress", ""); }
+
+        @JavascriptInterface
+        public void save(String json) { prefs.edit().putString("progress", json).commit(); }
     }
 
     private void goBackOrFinish() {

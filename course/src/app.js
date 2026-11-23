@@ -7,10 +7,25 @@
   const $app = document.getElementById('app');
 
   // ---------- progress ----------
-  let S;
-  try { S = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { S = {}; }
+  // In the Android app, progress goes to the phone's app storage through the
+  // AndroidStore bridge, so it never depends on the WebView's browser storage.
+  // In a plain browser it uses localStorage, and warns when that is unavailable.
+  const NATIVE = window.AndroidStore || null;
+  let S = null, storageOk = !!NATIVE;
+  if (NATIVE) { try { S = JSON.parse(NATIVE.load() || 'null'); } catch (e) { S = null; } }
+  if (!S) { try { S = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { S = null; } }
+  if (!NATIVE) {
+    try { localStorage.setItem(KEY + '-probe', '1'); storageOk = localStorage.getItem(KEY + '-probe') === '1'; } catch (e) { storageOk = false; }
+  }
+  S = S || {};
   S.items = S.items || {}; S.labs = S.labs || {}; S.seen = S.seen || {};
-  function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+  function save() {
+    const json = JSON.stringify(S);
+    if (NATIVE) { try { NATIVE.save(json); } catch (e) {} }
+    try { localStorage.setItem(KEY, json); } catch (e) {}
+  }
+  document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
+  window.addEventListener('pagehide', save);
 
   const lessons = [];               // flat list, in order
   C.modules.forEach(m => m.lessons.forEach((l, i) => {
@@ -88,9 +103,21 @@
       h += `<a class="card mod" href="#/m/${m.id}"><div class="ic">${m.icon}</div><div class="tx"><b>${esc(m.title)}</b><small>${esc(m.summary)}</small>
         <div class="bar"><i style="width:${100 * d / n}%"></i></div></div><div class="ck">${d}/${n}</div></a>`;
     });
-    h += `<div class="row" style="margin-top:24px"><a class="btn ghost small" href="#/sources">Sources</a><a class="btn ghost small" href="#/about">About & labels</a><button class="btn ghost small" id="reset">Reset progress</button></div>`;
+    h += `<div class="row" style="margin-top:24px"><a class="btn ghost small" href="#/sources">Sources</a><a class="btn ghost small" href="#/about">About & labels</a></div>
+      <div class="row"><button class="btn ghost small" id="backup">Copy progress backup</button><button class="btn ghost small" id="restore">Restore from backup</button><button class="btn ghost small" id="reset">Reset progress</button></div>`;
+    if (!storageOk) h = `<div class="note warn" style="margin-top:14px"><b class="lbl">Progress is not being saved here</b>This browser view blocks storage, so your answers and lab code are lost when you close it. Use the Android app, or press "Copy progress backup" before closing and "Restore from backup" next time.</div>` + h;
     const main = shell('Smart Post Academy', null, h, 'learn');
     main.querySelector('#reset').onclick = () => { if (confirm('Erase all progress and saved lab code?')) { S = { items: {}, labs: {}, seen: {} }; save(); home(); } };
+    main.querySelector('#backup').onclick = () => copy('SPA1:' + btoa(unescape(encodeURIComponent(JSON.stringify(S)))));
+    main.querySelector('#restore').onclick = () => {
+      const t = prompt('Paste your progress backup (it starts with SPA1:)');
+      if (!t) return;
+      try {
+        const d = JSON.parse(decodeURIComponent(escape(atob(t.trim().replace(/^SPA1:/, '')))));
+        if (!d || typeof d !== 'object' || !d.items) throw new Error('bad');
+        S = d; S.labs = S.labs || {}; S.seen = S.seen || {}; save(); toast('Progress restored'); home();
+      } catch (e) { toast('That is not a valid backup'); }
+    };
   }
 
   function moduleScreen(id) {
